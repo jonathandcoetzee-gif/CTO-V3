@@ -1,0 +1,16 @@
+node_modules/
+services/node_modules/
+.env
+*.log
+.git_log.txt
+git_*.txt
+do_*.js
+do_*.cjs
+do_*.sh
+simple_test.sh
+run_and_log.sh
+build.sh
+check-tools.sh
+test-key.mjs
+test_*.txt
+.DS_Store
