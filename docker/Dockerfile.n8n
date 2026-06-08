@@ -1,0 +1,31 @@
+# ── n8n Workflow Engine ──────────────────────────────────────────────────
+# Uses the official n8n image with custom workflow import capability
+
+FROM n8nio/n8n:latest
+
+# Switch to root for custom setup
+USER root
+
+# Create a startup script that imports workflow JSONs on first boot
+RUN mkdir -p /import-scripts
+
+COPY <<'EOF' /import-scripts/import-workflows.sh
+#!/bin/sh
+# Import workflow JSONs from the mounted volume on first startup
+if [ -d "/home/node/workflows" ] && [ "$(ls -A /home/node/workflows /*.json 2>/dev/null)" ]; then
+  echo "[n8n] Importing workflows from /home/node/workflows..."
+  for f in /home/node/workflows/*.json; do
+    echo "  Importing $(basename $f)..."
+    n8n import:workflow --input="$f" --quiet 2>/dev/null || true
+  done
+  echo "[n8n] Workflow import complete"
+fi
+EOF
+
+RUN chmod +x /import-scripts/import-workflows.sh
+
+# Switch back to the n8n user
+USER node
+
+# Override the default entrypoint to run import script first
+ENTRYPOINT ["/bin/sh", "-c", "/import-scripts/import-workflows.sh && n8n start"]

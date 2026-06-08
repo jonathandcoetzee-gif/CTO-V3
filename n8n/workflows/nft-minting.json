@@ -1,0 +1,116 @@
+{
+  "name": "NFT Minting — Every 2 Hours",
+  "nodes": [
+    {
+      "id": "trigger-schedule",
+      "name": "Every 2 Hours",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 120
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "http-ace-art",
+      "name": "POST Generate Art to ACE",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [450, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.N8N_WEBHOOK_BASE }}/ace/run-pipeline",
+        "authentication": "none",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "pipeline", "value": "nft" },
+            { "name": "action", "value": "generate-art" }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "http-ace-upload",
+      "name": "POST Upload to IPFS via ACE",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [650, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.N8N_WEBHOOK_BASE }}/ace/run-pipeline",
+        "authentication": "none",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "pipeline", "value": "nft" },
+            { "name": "action", "value": "upload-to-ipfs" },
+            { "name": "artPath", "value": "={{ $json.artPath }}" },
+            { "name": "artHash", "value": "={{ $json.artHash }}" }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "http-ace-mint",
+      "name": "POST Mint NFT to ACE",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [850, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.N8N_WEBHOOK_BASE }}/ace/run-pipeline",
+        "authentication": "none",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "pipeline", "value": "nft" },
+            { "name": "action", "value": "mint" },
+            { "name": "metadataUri", "value": "={{ $json.metadataUri }}" },
+            { "name": "imageUri", "value": "={{ $json.imageUri }}" }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "noop-complete",
+      "name": "Complete",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1050, 300],
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "Every 2 Hours": {
+      "main": [[ { "node": "POST Generate Art to ACE", "type": "main", "index": 0 } ]]
+    },
+    "POST Generate Art to ACE": {
+      "main": [[ { "node": "POST Upload to IPFS via ACE", "type": "main", "index": 0 } ]]
+    },
+    "POST Upload to IPFS via ACE": {
+      "main": [[ { "node": "POST Mint NFT to ACE", "type": "main", "index": 0 } ]]
+    },
+    "POST Mint NFT to ACE": {
+      "main": [[ { "node": "Complete", "type": "main", "index": 0 } ]]
+    }
+  },
+  "active": true,
+  "settings": {
+    "timezone": "America/New_York",
+    "saveManualExec": true
+  },
+  "staticData": null,
+  "tags": ["nft", "minting", "generative-art"],
+  "pinData": {}
+}

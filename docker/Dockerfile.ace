@@ -1,0 +1,40 @@
+# ── ACE Core Orchestrator ─────────────────────────────────────────────────
+# Multi-stage build with production optimisations
+
+# ── Stage 1: Install dependencies ─────────────────────────────────────────
+FROM node:18-alpine AS deps
+
+WORKDIR /app
+
+# Copy only dependency definitions first for layer caching
+COPY ace-core/package.json ./
+
+RUN npm install --omit=dev && \
+    npm cache clean --force
+
+# ── Stage 2: Production image ──────────────────────────────────────────────
+FROM node:18-alpine AS runner
+
+WORKDIR /app
+
+# Create non-root user for security
+RUN addgroup -S ace && \
+    adduser -S ace -G ace
+
+# Copy node_modules from deps stage
+COPY --from=deps /app/node_modules ./node_modules
+
+# Copy ACE Core source
+COPY ace-core/ .
+
+# Create data directory for ticket queue and state
+RUN mkdir -p /app/data && \
+    chown -R ace:ace /app/data
+
+USER ace
+
+EXPOSE 3001
+
+ENV NODE_ENV=production
+
+CMD ["node", "index.js"]

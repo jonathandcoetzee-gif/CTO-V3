@@ -1,0 +1,32 @@
+{
+  "name": "revenue-os",
+  "version": "1.0.0",
+  "description": "AI-powered Revenue Operating System — ACE orchestrator with automated income pipelines",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start:ace": "node ace-core/server.js",
+    "start:all": "node ace-core/orchestrator.js",
+    "docker:up": "docker compose -f docker/docker-compose.yml up -d",
+    "docker:down": "docker compose -f docker/docker-compose.yml down",
+    "docker:build": "docker compose -f docker/docker-compose.yml build",
+    "lint": "eslint '**/*.js'",
+    "format": "prettier --write '**/*.js'"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "body-parser": "^1.20.2",
+    "openai": "^4.47.1",
+    "googleapis": "^134.0.0",
+    "node-fetch": "^3.3.2",
+    "ethers": "^6.11.1",
+    "dotenv": "^16.4.1"
+  },
+  "devDependencies": {
+    "eslint": "^8.56.0",
+    "prettier": "^3.2.4"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

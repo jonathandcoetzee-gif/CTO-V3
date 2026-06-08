@@ -1,0 +1,151 @@
+{
+  "name": "Sneaker Arbitrage — Hourly Price Gap Scanner",
+  "nodes": [
+    {
+      "id": "trigger-schedule",
+      "name": "Hourly Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 60
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "http-ace-scrape",
+      "name": "Request Scan from ACE",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [450, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.N8N_WEBHOOK_BASE }}/ace/run-pipeline",
+        "authentication": "none",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "pipeline", "value": "sneaker" },
+            { "name": "action", "value": "scan-arbitrage" }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "switch-gap-detected",
+      "name": "Gap ≥30%?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 2,
+      "position": [650, 300],
+      "parameters": {
+        "dataType": "number",
+        "value1": "={{ $json.gapPercent || 0 }}",
+        "rules": [
+          { "value2": 30, "output": 0 }
+        ],
+        "fallbackOutput": 1
+      }
+    },
+    {
+      "id": "http-buy-stockx",
+      "name": "Execute Buy (StockX)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [850, 200],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.N8N_WEBHOOK_BASE }}/ace/execute-trade",
+        "authentication": "none",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "action", "value": "buy" },
+            { "name": "sku", "value": "={{ $json.sku }}" },
+            { "name": "marketplace", "value": "stockx" },
+            { "name": "price", "value": "={{ $json.buyPrice }}" }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "http-list-goat",
+      "name": "List on GOAT",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [850, 400],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.N8N_WEBHOOK_BASE }}/ace/execute-trade",
+        "authentication": "none",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "action", "value": "list" },
+            { "name": "sku", "value": "={{ $json.sku }}" },
+            { "name": "marketplace", "value": "goat" },
+            { "name": "price", "value": "={{ $json.listPrice }}" }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "noop-skip",
+      "name": "Skip (no gap)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [850, 600],
+      "parameters": {}
+    },
+    {
+      "id": "noop-complete",
+      "name": "Complete",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1050, 300],
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "Hourly Schedule": {
+      "main": [[ { "node": "Request Scan from ACE", "type": "main", "index": 0 } ]]
+    },
+    "Request Scan from ACE": {
+      "main": [[ { "node": "Gap ≥30%?", "type": "main", "index": 0 } ]]
+    },
+    "Gap ≥30%?": {
+      "main": [
+        [ { "node": "Execute Buy (StockX)", "type": "main", "index": 0 } ],
+        [ { "node": "Skip (no gap)", "type": "main", "index": 0 } ]
+      ]
+    },
+    "Execute Buy (StockX)": {
+      "main": [[ { "node": "List on GOAT", "type": "main", "index": 0 } ]]
+    },
+    "Execute Buy (StockX)": {
+      "main": [[ { "node": "List on GOAT", "type": "main", "index": 0 } ]]
+    },
+    "List on GOAT": {
+      "main": [[ { "node": "Complete", "type": "main", "index": 0 } ]]
+    },
+    "Skip (no gap)": {
+      "main": [[ { "node": "Complete", "type": "main", "index": 0 } ]]
+    }
+  },
+  "active": true,
+  "settings": {
+    "timezone": "America/New_York",
+    "saveManualExec": true
+  },
+  "staticData": null,
+  "tags": ["sneaker", "arbitrage", "trading"],
+  "pinData": {}
+}

@@ -1,0 +1,110 @@
+{
+  "name": "E-Book Generation — Weekly KDP Publication",
+  "nodes": [
+    {
+      "id": "trigger-schedule",
+      "name": "Weekly Schedule (Sunday 10:00)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "week",
+              "weekday": 1,
+              "hour": 10,
+              "minute": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "http-ace-topic",
+      "name": "GET Topic from ACE",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [450, 300],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.N8N_WEBHOOK_BASE }}/ace/next-task?pipeline=ebook",
+        "authentication": "none"
+      }
+    },
+    {
+      "id": "http-ace-generate",
+      "name": "POST Generate Book to ACE",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [650, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.N8N_WEBHOOK_BASE }}/ace/run-pipeline",
+        "authentication": "none",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "pipeline", "value": "ebook" },
+            { "name": "action", "value": "generate-and-publish" },
+            { "name": "topic", "value": "={{ $json.topic }}" }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "http-ace-publish",
+      "name": "POST Publish to KDP",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [850, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.N8N_WEBHOOK_BASE }}/ace/run-pipeline",
+        "authentication": "none",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "pipeline", "value": "ebook" },
+            { "name": "action", "value": "publish-to-kdp" },
+            { "name": "bookId", "value": "={{ $json.bookId }}" },
+            { "name": "manuscriptPath", "value": "={{ $json.manuscriptPath }}" },
+            { "name": "coverPath", "value": "={{ $json.coverPath }}" }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "noop-complete",
+      "name": "Complete",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1050, 300],
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "Weekly Schedule (Sunday 10:00)": {
+      "main": [[ { "node": "GET Topic from ACE", "type": "main", "index": 0 } ]]
+    },
+    "GET Topic from ACE": {
+      "main": [[ { "node": "POST Generate Book to ACE", "type": "main", "index": 0 } ]]
+    },
+    "POST Generate Book to ACE": {
+      "main": [[ { "node": "POST Publish to KDP", "type": "main", "index": 0 } ]]
+    },
+    "POST Publish to KDP": {
+      "main": [[ { "node": "Complete", "type": "main", "index": 0 } ]]
+    }
+  },
+  "active": true,
+  "settings": {
+    "timezone": "America/New_York",
+    "saveManualExec": true
+  },
+  "staticData": null,
+  "tags": ["ebook", "kdp", "publishing"],
+  "pinData": {}
+}

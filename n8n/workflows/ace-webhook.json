@@ -1,0 +1,201 @@
+{
+  "name": "ACE Webhook — Dynamic Pipeline Router",
+  "nodes": [
+    {
+      "id": "trigger-webhook",
+      "name": "ACE Webhook Receiver",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [250, 300],
+      "parameters": {
+        "path": "ace/execute",
+        "responseMode": "onReceived",
+        "responseData": "allEntries",
+        "options": {
+          "rawBody": true
+        },
+        "httpMethod": "POST"
+      },
+      "webhookId": "ace-execute"
+    },
+    {
+      "id": "code-parse",
+      "name": "Parse Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [450, 300],
+      "parameters": {
+        "jsCode": "const body = $input.first().json;\nconst pipeline = body.pipeline;\nconst action = body.action;\nconst payload = body.payload || {};\n\nif (!pipeline || !action) {\n  throw new Error('Missing required fields: pipeline and action');\n}\n\nreturn {\n  pipeline,\n  action,\n  payload,\n  timestamp: new Date().toISOString()\n};"
+      }
+    },
+    {
+      "id": "switch-router",
+      "name": "Route by Pipeline",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 2,
+      "position": [650, 300],
+      "parameters": {
+        "dataType": "string",
+        "value1": "={{ $json.pipeline }}",
+        "rules": [
+          { "value2": "youtube", "output": 0 },
+          { "value2": "sneaker", "output": 1 },
+          { "value2": "ebook", "output": 2 },
+          { "value2": "nft", "output": 3 }
+        ],
+        "fallbackOutput": 4
+      }
+    },
+    {
+      "id": "http-exec-youtube",
+      "name": "Execute YouTube Pipeline",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [850, 0],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.N8N_WEBHOOK_BASE }}/ace/run-pipeline",
+        "authentication": "none",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "pipeline", "value": "youtube" },
+            { "name": "action", "value": "={{ $json.action }}" },
+            { "name": "payload", "value": "={{ JSON.stringify($json.payload) }}" }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "http-exec-sneaker",
+      "name": "Execute Sneaker Pipeline",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [850, 200],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.N8N_WEBHOOK_BASE }}/ace/run-pipeline",
+        "authentication": "none",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "pipeline", "value": "sneaker" },
+            { "name": "action", "value": "={{ $json.action }}" },
+            { "name": "payload", "value": "={{ JSON.stringify($json.payload) }}" }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "http-exec-ebook",
+      "name": "Execute E-Book Pipeline",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [850, 400],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.N8N_WEBHOOK_BASE }}/ace/run-pipeline",
+        "authentication": "none",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "pipeline", "value": "ebook" },
+            { "name": "action", "value": "={{ $json.action }}" },
+            { "name": "payload", "value": "={{ JSON.stringify($json.payload) }}" }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "http-exec-nft",
+      "name": "Execute NFT Pipeline",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [850, 600],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.N8N_WEBHOOK_BASE }}/ace/run-pipeline",
+        "authentication": "none",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "pipeline", "value": "nft" },
+            { "name": "action", "value": "={{ $json.action }}" },
+            { "name": "payload", "value": "={{ JSON.stringify($json.payload) }}" }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "http-exec-unknown",
+      "name": "Unknown Pipeline Handler",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [850, 800],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.N8N_WEBHOOK_BASE }}/ace/log",
+        "authentication": "none",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "level", "value": "warn" },
+            { "name": "message", "value": "Unknown pipeline: {{ $json.pipeline }}" }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "noop-complete",
+      "name": "Complete",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1050, 400],
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "ACE Webhook Receiver": {
+      "main": [[ { "node": "Parse Payload", "type": "main", "index": 0 } ]]
+    },
+    "Parse Payload": {
+      "main": [[ { "node": "Route by Pipeline", "type": "main", "index": 0 } ]]
+    },
+    "Route by Pipeline": {
+      "main": [
+        [ { "node": "Execute YouTube Pipeline", "type": "main", "index": 0 } ],
+        [ { "node": "Execute Sneaker Pipeline", "type": "main", "index": 0 } ],
+        [ { "node": "Execute E-Book Pipeline", "type": "main", "index": 0 } ],
+        [ { "node": "Execute NFT Pipeline", "type": "main", "index": 0 } ],
+        [ { "node": "Unknown Pipeline Handler", "type": "main", "index": 0 } ]
+      ]
+    },
+    "Execute YouTube Pipeline": {
+      "main": [[ { "node": "Complete", "type": "main", "index": 0 } ]]
+    },
+    "Execute Sneaker Pipeline": {
+      "main": [[ { "node": "Complete", "type": "main", "index": 0 } ]]
+    },
+    "Execute E-Book Pipeline": {
+      "main": [[ { "node": "Complete", "type": "main", "index": 0 } ]]
+    },
+    "Execute NFT Pipeline": {
+      "main": [[ { "node": "Complete", "type": "main", "index": 0 } ]]
+    },
+    "Unknown Pipeline Handler": {
+      "main": [[ { "node": "Complete", "type": "main", "index": 0 } ]]
+    }
+  },
+  "active": true,
+  "settings": {
+    "saveManualExec": true
+  },
+  "staticData": null,
+  "tags": ["ace", "webhook", "orchestrator"],
+  "pinData": {}
+}

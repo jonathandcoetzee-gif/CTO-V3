@@ -1,0 +1,9 @@
+[
+  "function safeMint(address to, string memory uri) public",
+  "function mint(address to, string memory uri) public returns (uint256)",
+  "function balanceOf(address owner) public view returns (uint256)",
+  "function ownerOf(uint256 tokenId) public view returns (address)",
+  "function tokenURI(uint256 tokenId) public view returns (string memory)",
+  "function totalSupply() public view returns (uint256)",
+  "event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)"
+]

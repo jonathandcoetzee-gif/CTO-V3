@@ -1,0 +1,95 @@
+{
+  "name": "YouTube Automation — Daily Faceless Video",
+  "nodes": [
+    {
+      "id": "trigger-schedule",
+      "name": "Daily Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "time",
+              "hoursInterval": 24
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "http-ace-topic",
+      "name": "GET Topic from ACE",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [450, 300],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.N8N_WEBHOOK_BASE }}/ace/next-task?pipeline=youtube",
+        "authentication": "none"
+      }
+    },
+    {
+      "id": "code-validate",
+      "name": "Validate Topic Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [650, 300],
+      "parameters": {
+        "jsCode": "const topic = $input.first().json.topic;\nif (!topic) throw new Error('No topic returned from ACE');\nreturn { topic, status: 'ready' };"
+      }
+    },
+    {
+      "id": "http-ace-generate",
+      "name": "POST Generate Video to ACE",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [850, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.N8N_WEBHOOK_BASE }}/ace/run-pipeline",
+        "authentication": "none",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "pipeline", "value": "youtube" },
+            { "name": "topic", "value": "={{ $json.topic }}" },
+            { "name": "action", "value": "generate-and-upload" }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "noop-complete",
+      "name": "Complete",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1050, 300],
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "Daily Schedule": {
+      "main": [[ { "node": "GET Topic from ACE", "type": "main", "index": 0 } ]]
+    },
+    "GET Topic from ACE": {
+      "main": [[ { "node": "Validate Topic Response", "type": "main", "index": 0 } ]]
+    },
+    "Validate Topic Response": {
+      "main": [[ { "node": "POST Generate Video to ACE", "type": "main", "index": 0 } ]]
+    },
+    "POST Generate Video to ACE": {
+      "main": [[ { "node": "Complete", "type": "main", "index": 0 } ]]
+    }
+  },
+  "active": true,
+  "settings": {
+    "timezone": "America/New_York",
+    "saveManualExec": true
+  },
+  "staticData": null,
+  "tags": ["youtube", "automation", "daily"],
+  "pinData": {}
+}

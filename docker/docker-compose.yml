@@ -1,0 +1,73 @@
+version: '3.8'
+
+services:
+  # ── n8n Workflow Engine ──────────────────────────────────────────────────
+  n8n:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.n8n
+    container_name: revenue-os-n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_PORT=5678
+      - N8N_HOST=${N8N_HOST:-localhost}
+      - N8N_PROTOCOL=${N8N_PROTOCOL:-http}
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+      - WEBHOOK_URL=${N8N_WEBHOOK_BASE}
+      - EXECUTIONS_DATA_PRUNE=true
+      - EXECUTIONS_DATA_MAX_AGE=168
+      - DB_TYPE=sqlite
+      - DB_SQLITE_DATABASE=/home/node/.n8n/database.sqlite
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ../n8n/workflows:/home/node/workflows:ro
+    networks:
+      - revenue-os-net
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "http://localhost:5678/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ── ACE Core Orchestrator ────────────────────────────────────────────────
+  ace-core:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.ace
+    container_name: revenue-os-ace
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      - ACE_PORT=3001
+      - ACE_HOST=0.0.0.0
+      - ACE_HEARTBEAT_INTERVAL=5000
+      - N8N_WEBHOOK_BASE=http://n8n:5678/webhook
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - WEBHOOK_SNEAKER_ARB=http://n8n:5678/webhook/sneaker-arb
+      - WEBHOOK_YOUTUBE=http://n8n:5678/webhook/youtube-video
+      - WEBHOOK_EBOOK=http://n8n:5678/webhook/ebook
+      - WEBHOOK_NFT=http://n8n:5678/webhook/nft-mint
+      - WEBHOOK_ONBOARD=http://n8n:5678/webhook/onboard-client
+    volumes:
+      - ace_data:/app/data
+    depends_on:
+      n8n:
+        condition: service_healthy
+    networks:
+      - revenue-os-net
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  n8n_data:
+  ace_data:
+
+networks:
+  revenue-os-net:
+    driver: bridge
