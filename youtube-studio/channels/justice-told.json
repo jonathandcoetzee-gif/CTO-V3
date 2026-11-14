@@ -1,0 +1,44 @@
+{
+  "channel": "Justice Told",
+  "slug": "justice-told",
+  "niche": "Betrayal / Revenge narratives",
+  "revenue_priority": 2,
+  "rpm_target_usd": "5-8",
+  "brand_voice": "Gripping, dramatic, slightly mysterious. Real-life stories of overcoming betrayal and reaching poetic justice. Suspenseful, empathetic to the victim, satisfying in conclusion.",
+  "audience": "Story-hungry viewers 18-45 who watch true-story narration to the end.",
+  "style_rules": [
+    "Cold open on the betrayal moment, then rewind to how it started.",
+    "Withhold the outcome until the final third; end every paragraph on a hook.",
+    "Never name real private individuals; keep stories composite and clearly framed as dramatised.",
+    "No revenge instructions - the payoff is legal, social or karmic."
+  ],
+  "elevenlabs_voice": {
+    "name": "Ethan",
+    "env_var": "ELEVENLABS_VOICE_JUSTICE_TOLD",
+    "voice_id": "",
+    "description": "Gravelly, narrative-driven male"
+  },
+  "script": { "target_words": 1400, "words_per_minute": 150 },
+  "footage": {
+    "aspect": "16:9",
+    "default_queries": [
+      "rain window night city",
+      "empty courtroom hallway",
+      "silhouette walking dark street",
+      "old letters close up",
+      "wedding ring on table"
+    ]
+  },
+  "youtube": {
+    "category_id": "24",
+    "default_tags": ["true story", "betrayal story", "revenge story", "storytime", "dramatic narration"],
+    "thumbnail": { "palette": ["#7B0D1E", "#000000", "#FFFFFF"], "font": "Bebas Neue" }
+  },
+  "affiliate_stack": [
+    { "product": "Social Catfish", "commission": "30% commission", "url": "" },
+    { "product": "BeenVerified", "commission": "$35 per signup", "url": "" },
+    { "product": "TruthFinder", "commission": "$35 per signup", "url": "" },
+    { "product": "Incogni", "commission": "35% commission", "url": "" },
+    { "product": "Online-Therapy.com", "commission": "20% recurring", "url": "" }
+  ]
+}

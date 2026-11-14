@@ -1,0 +1,44 @@
+{
+  "channel": "FluentFast AI",
+  "slug": "fluentfast-ai",
+  "niche": "English learning (ESL)",
+  "revenue_priority": 4,
+  "rpm_target_usd": "5-8",
+  "brand_voice": "High-energy, supportive and clear. Practical phrases, common mistakes and immersive learning. Educational, fast-paced, globally inclusive.",
+  "audience": "Intermediate English learners worldwide, mobile-first viewers.",
+  "style_rules": [
+    "Model the phrase, then explain the mistake, then drill it three times.",
+    "Keep sentences under 14 words; define any hard word inline.",
+    "Use a neutral American accent reference in the narration.",
+    "End with one practice sentence the viewer can repeat out loud."
+  ],
+  "elevenlabs_voice": {
+    "name": "Serena",
+    "env_var": "ELEVENLABS_VOICE_FLUENTFAST_AI",
+    "voice_id": "",
+    "description": "Clear, neutral American accent, upbeat"
+  },
+  "script": { "target_words": 900, "words_per_minute": 150 },
+  "footage": {
+    "aspect": "16:9",
+    "default_queries": [
+      "students studying together cafe",
+      "person speaking presentation",
+      "world map travel",
+      "notebook english handwriting",
+      "friends conversation laughing"
+    ]
+  },
+  "youtube": {
+    "category_id": "27",
+    "default_tags": ["learn english", "english speaking practice", "english grammar", "esl", "english phrases"],
+    "thumbnail": { "palette": ["#FFD400", "#1B4FD8", "#FFFFFF"], "font": "Poppins Bold" }
+  },
+  "affiliate_stack": [
+    { "product": "Italki", "commission": "$15 per new student", "url": "" },
+    { "product": "Preply", "commission": "100% of first lesson fee", "url": "" },
+    { "product": "Babbel", "commission": "up to $32 per signup", "url": "" },
+    { "product": "Grammarly", "commission": "$0.20 per signup / $20 per upgrade", "url": "" },
+    { "product": "ELSA Speak", "commission": "25-40% commission", "url": "" }
+  ]
+}

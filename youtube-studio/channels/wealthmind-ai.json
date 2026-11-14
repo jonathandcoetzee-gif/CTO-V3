@@ -1,0 +1,44 @@
+{
+  "channel": "WealthMind AI",
+  "slug": "wealthmind-ai",
+  "niche": "Finance / Wealth explainers",
+  "revenue_priority": 1,
+  "rpm_target_usd": "10-15",
+  "brand_voice": "Authoritative yet accessible. Actionable wealth-building strategies, market analysis and the psychology of money. Professional, forward-looking, highly trustworthy.",
+  "audience": "Working professionals 25-45 who want to build wealth without a finance degree.",
+  "style_rules": [
+    "Open with a number, a mistake or a counter-intuitive claim in the first sentence.",
+    "Explain one idea per paragraph, in plain English, with a concrete dollar example.",
+    "Never give individual investment advice; frame as education and cite the mechanism, not a prediction.",
+    "Close by pointing at the affiliate tool as the practical next step."
+  ],
+  "elevenlabs_voice": {
+    "name": "Marcus",
+    "env_var": "ELEVENLABS_VOICE_WEALTHMIND_AI",
+    "voice_id": "",
+    "description": "Deep, calm, professional male"
+  },
+  "script": { "target_words": 1100, "words_per_minute": 150 },
+  "footage": {
+    "aspect": "16:9",
+    "default_queries": [
+      "modern city skyline aerial",
+      "stock market chart screen",
+      "business person reviewing documents",
+      "luxury watch close up",
+      "calculator money desk"
+    ]
+  },
+  "youtube": {
+    "category_id": "27",
+    "default_tags": ["personal finance", "wealth building", "investing for beginners", "money mindset", "financial freedom"],
+    "thumbnail": { "palette": ["#0B1F3A", "#C9A227", "#FFFFFF"], "font": "Montserrat ExtraBold" }
+  },
+  "affiliate_stack": [
+    { "product": "TradingView", "commission": "30% recurring", "url": "" },
+    { "product": "NordVPN", "commission": "40% commission", "url": "" },
+    { "product": "Ledger", "commission": "10% per sale", "url": "" },
+    { "product": "MasterClass", "commission": "25% per sale", "url": "" },
+    { "product": "Audible", "commission": "$15 per signup", "url": "" }
+  ]
+}

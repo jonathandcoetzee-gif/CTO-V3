@@ -1,95 +1,1134 @@
 {
-  "name": "YouTube Automation — Daily Faceless Video",
+  "name": "YouTube Studio — Topic Queue ➜ Render ➜ Upload (4 channels)",
   "nodes": [
     {
-      "id": "trigger-schedule",
-      "name": "Daily Schedule",
+      "id": "b1a1f001-0001-4000-8000-000000000001",
+      "name": "Daily 08:00 Trigger",
       "type": "n8n-nodes-base.scheduleTrigger",
-      "typeVersion": 1,
-      "position": [250, 300],
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        300
+      ],
       "parameters": {
         "rule": {
           "interval": [
             {
-              "field": "time",
-              "hoursInterval": 24
+              "field": "cronExpression",
+              "expression": "0 8 * * *"
             }
           ]
         }
       }
     },
     {
-      "id": "http-ace-topic",
-      "name": "GET Topic from ACE",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [450, 300],
+      "id": "b1a1f001-0001-4000-8000-000000000002",
+      "name": "Read Topic Queue",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        220,
+        300
+      ],
       "parameters": {
-        "method": "GET",
-        "url": "={{ $env.N8N_WEBHOOK_BASE }}/ace/next-task?pipeline=youtube",
-        "authentication": "none"
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $env.GOOGLE_SHEET_ID }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "ContentPipeline"
+        },
+        "options": {
+          "rangeDefinition": "automaticallyDetectRange"
+        }
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets (YouTube Studio)"
+        }
       }
     },
     {
-      "id": "code-validate",
-      "name": "Validate Topic Response",
+      "id": "b1a1f001-0001-4000-8000-000000000003",
+      "name": "Select Pending Topics",
       "type": "n8n-nodes-base.code",
-      "typeVersion": 1,
-      "position": [650, 300],
+      "typeVersion": 2,
+      "position": [
+        440,
+        300
+      ],
       "parameters": {
-        "jsCode": "const topic = $input.first().json.topic;\nif (!topic) throw new Error('No topic returned from ACE');\nreturn { topic, status: 'ready' };"
+        "jsCode": "// Filter the ContentPipeline sheet down to the rows this run should produce.\n// Rules (sheets-schema.md): Script Status = Pending AND Video Status = Pending.\n// At most one video per channel per run, in business-plan revenue priority order.\nconst CHANNEL_PRIORITY = ['WealthMind AI', 'Justice Told', 'GoldenYears Guide', 'FluentFast AI'];\nconst MAX_PER_RUN = Math.max(1, parseInt($env.MAX_VIDEOS_PER_RUN || '4', 10) || 4);\n\nconst rows = $input.all()\n  .map((item) => item.json || {})\n  .filter((row) => row && String(row['Channel'] || '').trim() !== '');\n\nconst isPending = (value) => String(value || '').trim().toLowerCase() === 'pending';\n\nconst pending = rows.filter(\n  (row) => isPending(row['Script Status']) && isPending(row['Video Status']),\n);\n\nconst byChannel = new Map();\nfor (const row of pending) {\n  const channel = String(row['Channel']).trim();\n  if (!CHANNEL_PRIORITY.includes(channel)) continue;\n  if (!byChannel.has(channel)) byChannel.set(channel, []);\n  byChannel.get(channel).push(row);\n}\n\nconst selected = [];\nfor (const channel of CHANNEL_PRIORITY) {\n  const queue = byChannel.get(channel);\n  if (!queue || queue.length === 0) continue;\n  // Earliest scheduled slot first, so a backlog drains in publish order.\n  queue.sort((a, b) =>\n    String(a['Scheduled Time'] || '').localeCompare(String(b['Scheduled Time'] || '')),\n  );\n  selected.push(queue[0]);\n  if (selected.length >= MAX_PER_RUN) break;\n}\n\nif (selected.length === 0) {\n  console.log('No pending rows: nothing to produce this run.');\n  return [];\n}\n\nconsole.log(`Selected ${selected.length} topic(s): ${selected.map((r) => `${r['Channel']} / ${r['Topic']}`).join(' | ')}`);\nreturn selected.map((row) => ({ json: { ...row } }));\n"
       }
     },
     {
-      "id": "http-ace-generate",
-      "name": "POST Generate Video to ACE",
+      "id": "b1a1f001-0001-4000-8000-000000000004",
+      "name": "Validate Config (fail loud)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// Hard gate: refuse to run (and refuse to spend a cent) when a key is missing.\n// Every message says which key, whether it is free or paid, and where to get it.\nconst REQUIRED = [\n  { key: 'OPENAI_API_KEY', label: 'OpenAI API key', cost: 'PAID (pay-as-you-go)', where: 'https://platform.openai.com/api-keys' },\n  { key: 'ELEVENLABS_API_KEY', label: 'ElevenLabs API key', cost: 'PAID for commercial use (free tier: 10k credits/mo, attribution only)', where: 'https://elevenlabs.io/app/settings/api-keys' },\n  { key: 'PEXELS_API_KEY', label: 'Pexels API key', cost: 'FREE (attribution required)', where: 'https://www.pexels.com/api/' },\n  { key: 'GOOGLE_SHEET_ID', label: 'Google Sheet ID', cost: 'FREE (Google account)', where: 'the long id in your sheet URL between /d/ and /edit' },\n  { key: 'MPT_API_URL', label: 'MoneyPrinterTurbo API URL', cost: 'FREE (self-hosted)', where: 'http://moneyprinterturbo:8080 when using youtube-studio/docker-compose.yml' },\n];\n\nconst PLACEHOLDER = /^(x{3,}|sk-x+|sk-xxx+|your[-_ ]|changeme|todo|r8_xxx)/i;\nconst isSet = (value) => {\n  const v = String(value || '').trim();\n  return v !== '' && !PLACEHOLDER.test(v);\n};\n\nconst problems = [];\nfor (const entry of REQUIRED) {\n  if (!isSet($env[entry.key])) {\n    problems.push(`  - ${entry.key} is missing or still a placeholder\\n      ${entry.label} | ${entry.cost}\\n      Get it: ${entry.where}`);\n  }\n}\n\n// Per-channel ElevenLabs voice ids: the persona voices named in channel-identity.md.\nconst VOICE_ENV = {\n  'WealthMind AI': 'ELEVENLABS_VOICE_WEALTHMIND_AI',\n  'GoldenYears Guide': 'ELEVENLABS_VOICE_GOLDENYEARS_GUIDE',\n  'Justice Told': 'ELEVENLABS_VOICE_JUSTICE_TOLD',\n  'FluentFast AI': 'ELEVENLABS_VOICE_FLUENTFAST_AI',\n};\nfor (const item of $input.all()) {\n  const channel = String(item.json['Channel'] || '').trim();\n  const envKey = VOICE_ENV[channel];\n  if (envKey && !isSet($env[envKey])) {\n    problems.push(`  - ${envKey} is missing for channel \"${channel}\"\\n      ElevenLabs voice ID | PAID voice, free to copy the id\\n      Get it: https://elevenlabs.io/app/voice-library (copy the voice ID into .env)`);\n  }\n}\n\nif (problems.length > 0) {\n  throw new Error(\n    [\n      'YouTube pipeline cannot start — configuration is incomplete.',\n      '',\n      ...problems,\n      '',\n      'Fix: copy youtube-studio/.env.template to youtube-studio/.env, fill the keys above,',\n      'then restart the stack (docker compose up -d) so n8n picks up the new environment.',\n    ].join('\\n'),\n  );\n}\n\nconsole.log('Config OK: all required keys present for', $input.all().map((i) => i.json['Channel']).join(', '));\nreturn $input.all();\n"
+      }
+    },
+    {
+      "id": "b1a1f001-0001-4000-8000-000000000005",
+      "name": "Channel Config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// Per-channel identity, voice and SEO defaults.\n// Mirrors youtube-studio/channels/*.json — keep the two in sync when a channel changes.\nconst CHANNELS = {\n  'WealthMind AI': {\n    slug: 'wealthmind-ai',\n    niche: 'Finance / Wealth explainers',\n    priority: 1,\n    rpm: '$10-15 RPM',\n    voiceName: 'Marcus',\n    voiceEnv: 'ELEVENLABS_VOICE_WEALTHMIND_AI',\n    categoryId: '27',\n    brandVoice:\n      'Authoritative yet accessible. Actionable wealth-building strategies, market analysis and the psychology of money. Professional, forward-looking, highly trustworthy.',\n    audience: 'Working professionals 25-45 who want to build wealth without a finance degree.',\n    styleRules: [\n      'Open with a number, a mistake or a counter-intuitive claim in the first sentence.',\n      'Explain one idea per paragraph, in plain English, with a concrete dollar example.',\n      'Never give individual investment advice; frame as education and cite the mechanism, not a prediction.',\n      'Close by pointing at the affiliate tool as the practical next step.',\n    ],\n    targetWords: 1100,\n    footageQueries: [\n      'modern city skyline aerial',\n      'stock market chart screen',\n      'business person reviewing documents',\n      'luxury watch close up',\n      'calculator money desk',\n    ],\n    defaultTags: ['personal finance', 'wealth building', 'investing for beginners', 'money mindset', 'financial freedom'],\n    affiliate: { product: 'TradingView', url: '', commission: '30% recurring' },\n    thumbnail: { palette: ['#0B1F3A', '#C9A227', '#FFFFFF'], font: 'Montserrat ExtraBold' },\n  },\n  'Justice Told': {\n    slug: 'justice-told',\n    niche: 'Betrayal / Revenge narratives',\n    priority: 2,\n    rpm: '$5-8 RPM',\n    voiceName: 'Ethan',\n    voiceEnv: 'ELEVENLABS_VOICE_JUSTICE_TOLD',\n    categoryId: '24',\n    brandVoice:\n      'Gripping, dramatic, slightly mysterious. Real-life stories of overcoming betrayal and reaching poetic justice. Suspenseful, empathetic to the victim, satisfying in conclusion.',\n    audience: 'Story-hungry viewers 18-45 who watch true-story narration to the end.',\n    styleRules: [\n      'Cold open on the betrayal moment, then rewind to how it started.',\n      'Withhold the outcome until the final third; end every paragraph on a hook.',\n      'Never name real private individuals; keep stories composite and clearly framed as dramatised.',\n      'No revenge instructions — the payoff is legal, social or karmic.',\n    ],\n    targetWords: 1400,\n    footageQueries: [\n      'rain window night city',\n      'empty courtroom hallway',\n      'silhouette walking dark street',\n      'old letters close up',\n      'wedding ring on table',\n    ],\n    defaultTags: ['true story', 'betrayal story', 'revenge story', 'storytime', 'dramatic narration'],\n    affiliate: { product: 'Incogni', url: '', commission: '35% commission' },\n    thumbnail: { palette: ['#7B0D1E', '#000000', '#FFFFFF'], font: 'Bebas Neue' },\n  },\n  'GoldenYears Guide': {\n    slug: 'goldenyears-guide',\n    niche: 'Senior health & wellness',\n    priority: 3,\n    rpm: '$5-8 RPM (high-CPM senior demographic)',\n    voiceName: 'Dorothy',\n    voiceEnv: 'ELEVENLABS_VOICE_GOLDENYEARS_GUIDE',\n    categoryId: '27',\n    brandVoice:\n      'Gentle, encouraging and respectful. Longevity, simple exercises, nutrition for seniors and mental well-being. Warm, patient, community-oriented.',\n    audience: 'Adults 60+ and the family members who look after them.',\n    styleRules: [\n      'Speak slowly and warmly; short sentences, no jargon.',\n      'Every health claim must be framed as general wellbeing, with \"talk to your doctor first\".',\n      'Give one thing the viewer can do today, seated or at home.',\n      'Never promise a cure, a diagnosis or a specific medical outcome.',\n    ],\n    targetWords: 950,\n    footageQueries: [\n      'senior couple walking park',\n      'healthy breakfast table sunlight',\n      'senior woman stretching living room',\n      'grandparents laughing garden',\n      'fresh vegetables close up',\n    ],\n    defaultTags: ['senior health', 'healthy aging', 'exercises for seniors', 'retirement wellness', 'nutrition after 60'],\n    affiliate: { product: 'SilverSneakers', url: '', commission: 'lead-based' },\n    thumbnail: { palette: ['#8FBF9F', '#8CC7E8', '#F6C9A8'], font: 'Playfair Display' },\n  },\n  'FluentFast AI': {\n    slug: 'fluentfast-ai',\n    niche: 'English learning (ESL)',\n    priority: 4,\n    rpm: '$5-8 RPM (global evergreen audience)',\n    voiceName: 'Serena',\n    voiceEnv: 'ELEVENLABS_VOICE_FLUENTFAST_AI',\n    categoryId: '27',\n    brandVoice:\n      'High-energy, supportive and clear. Practical phrases, common mistakes and immersive learning. Educational, fast-paced, globally inclusive.',\n    audience: 'Intermediate English learners worldwide, mobile-first viewers.',\n    styleRules: [\n      'Model the phrase, then explain the mistake, then drill it three times.',\n      'Keep sentences under 14 words; define any hard word inline.',\n      'Use a neutral American accent reference in the narration.',\n      'End with one practice sentence the viewer can repeat out loud.',\n    ],\n    targetWords: 900,\n    footageQueries: [\n      'students studying together cafe',\n      'person speaking presentation',\n      'world map travel',\n      'notebook english handwriting',\n      'friends conversation laughing',\n    ],\n    defaultTags: ['learn english', 'english speaking practice', 'english grammar', 'esl', 'english phrases'],\n    affiliate: { product: 'Italki', url: '', commission: '$15 per new student' },\n    thumbnail: { palette: ['#FFD400', '#1B4FD8', '#FFFFFF'], font: 'Poppins Bold' },\n  },\n};\n\nconst MODEL = $env.OPENAI_MODEL || 'gpt-4o';\nconst runStamp = new Date().toISOString().replace(/[:.]/g, '-');\n\nreturn $input.all().map((item) => {\n  const row = item.json;\n  const channel = String(row['Channel'] || '').trim();\n  const config = CHANNELS[channel];\n  if (!config) {\n    throw new Error(\n      `Unknown channel \"${channel}\" in row \"${row['Topic']}\". Allowed values: ${Object.keys(CHANNELS).join(', ')}. Fix the Channel dropdown in the ContentPipeline sheet.`,\n    );\n  }\n  const voiceId = String($env[config.voiceEnv] || '').trim();\n  const notes = String(row['Notes'] || '').trim();\n  const affiliateUrl = String(row['Affiliate Link'] || '').trim() || config.affiliate.url;\n\n  const systemPrompt = [\n    `You are the head writer for \"${channel}\", a faceless YouTube channel about ${config.niche}.`,\n    `Brand voice: ${config.brandVoice}`,\n    `Audience: ${config.audience}`,\n    'House rules:',\n    ...config.styleRules.map((rule) => `- ${rule}`),\n    'You write narration only. No scene directions, no speaker labels, no markdown, no emoji.',\n    'You never invent statistics, studies, names or quotes. If a number is needed, keep it generic and obviously illustrative.',\n  ].join('\\n');\n\n  const userPrompt = [\n    `Write a complete YouTube narration script on this topic: \"${row['Topic']}\".`,\n    `Target length: about ${config.targetWords} words (roughly ${Math.round(config.targetWords / 150)} minutes of speech).`,\n    notes ? `Editor notes to respect: ${notes}` : '',\n    affiliateUrl ? `The affiliate partner for this video is ${config.affiliate.product} (${affiliateUrl}). Mention it once, naturally, near the end.` : '',\n    '',\n    'Return ONLY valid JSON with this exact shape:',\n    '{',\n    '  \"hook\": \"one or two spoken sentences that open the video and earn the next 30 seconds\",',\n    '  \"script\": \"the full narration as plain spoken text, paragraphs separated by \\\\n\\\\n\",',\n    '  \"summary\": \"3 sentence summary of what the video covers\",',\n    '  \"footage_queries\": [\"5 short Pexels stock-footage search queries, 2-5 words each, visual and concrete\"],',\n    '  \"suggested_title\": \"a working title under 70 characters\"',\n    '}',\n  ].filter(Boolean).join('\\n');\n\n  const openai_body = {\n    model: MODEL,\n    temperature: 0.8,\n    response_format: { type: 'json_object' },\n    messages: [\n      { role: 'system', content: systemPrompt },\n      { role: 'user', content: userPrompt },\n    ],\n  };\n\n  return {\n    json: {\n      ...row,\n      channel_slug: config.slug,\n      niche: config.niche,\n      priority: config.priority,\n      rpm_target: config.rpm,\n      brand_voice: config.brandVoice,\n      style_rules: config.styleRules,\n      target_words: config.targetWords,\n      voice_id: voiceId,\n      voice_name: config.voiceName,\n      // MoneyPrinterTurbo speaks ElevenLabs voices in this exact format.\n      mpt_voice_name: `elevenlabs:${voiceId}:${config.voiceName}`,\n      category_id: config.categoryId,\n      default_tags: config.defaultTags,\n      default_footage_queries: config.footageQueries,\n      affiliate_product: config.affiliate.product,\n      affiliate_url: affiliateUrl,\n      affiliate_commission: config.affiliate.commission,\n      thumbnail_palette: config.thumbnail.palette,\n      thumbnail_font: config.thumbnail.font,\n      editor_notes: notes,\n      run_stamp: runStamp,\n      audio_filename: `${config.slug}-${runStamp}-${Math.random().toString(36).slice(2, 8)}.mp3`,\n      openai_body,\n    },\n  };\n});\n"
+      }
+    },
+    {
+      "id": "b1a1f001-0001-4000-8000-000000000006",
+      "name": "Mark Script Generating",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1100,
+        300
+      ],
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $env.GOOGLE_SHEET_ID }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "ContentPipeline"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Channel": "={{ $json['Channel'] }}",
+            "Topic": "={{ $json['Topic'] }}",
+            "Script Status": "Generating"
+          },
+          "matchingColumns": [
+            "Channel",
+            "Topic"
+          ],
+          "schema": []
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets (YouTube Studio)"
+        }
+      }
+    },
+    {
+      "id": "b1a1f001-0001-4000-8000-000000000007",
+      "name": "LLM: Write Script",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [850, 300],
+      "position": [
+        1320,
+        300
+      ],
       "parameters": {
         "method": "POST",
-        "url": "={{ $env.N8N_WEBHOOK_BASE }}/ace/run-pipeline",
+        "url": "https://api.openai.com/v1/chat/completions",
         "authentication": "none",
-        "sendBody": true,
-        "bodyParameters": {
+        "sendHeaders": true,
+        "headerParameters": {
           "parameters": [
-            { "name": "pipeline", "value": "youtube" },
-            { "name": "topic", "value": "={{ $json.topic }}" },
-            { "name": "action", "value": "generate-and-upload" }
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.OPENAI_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
           ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.openai_body) }}",
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "b1a1f001-0001-4000-8000-000000000008",
+      "name": "Parse Script",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// Parse the script LLM response, validate it, and decide what ElevenLabs synthesises.\nconst cfgItems = $('Channel Config').all();\n\nreturn $input.all().map((item, index) => {\n  const cfg = (cfgItems[index] || cfgItems[0] || {}).json || {};\n  const choice = (item.json.choices || [])[0] || {};\n  const raw = String((choice.message && choice.message.content) || '').trim();\n\n  if (!raw) {\n    throw new Error(`OpenAI returned an empty script for \"${cfg['Topic']}\". Check OPENAI_API_KEY and the model name (OPENAI_MODEL=${$env.OPENAI_MODEL || 'gpt-4o'}).`);\n  }\n\n  let parsed;\n  try {\n    parsed = JSON.parse(raw.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim());\n  } catch (error) {\n    throw new Error(`Script LLM did not return valid JSON for \"${cfg['Topic']}\": ${error.message}. First 200 chars: ${raw.slice(0, 200)}`);\n  }\n\n  const script = String(parsed.script || '').trim();\n  const hook = String(parsed.hook || '').trim();\n  if (script.length < 300) {\n    throw new Error(`Script for \"${cfg['Topic']}\" is too short (${script.length} chars). Refusing to render a video from it.`);\n  }\n\n  const footageQueries = (Array.isArray(parsed.footage_queries) && parsed.footage_queries.length > 0\n    ? parsed.footage_queries\n    : cfg.default_footage_queries || []\n  )\n    .map((q) => String(q || '').trim())\n    .filter(Boolean)\n    .slice(0, 5);\n\n  if (footageQueries.length === 0) {\n    throw new Error(`No Pexels footage queries available for \"${cfg['Topic']}\". Add 5 queries to the channel config.`);\n  }\n\n  // ELEVENLABS_NARRATION=full  -> synthesise the whole script (full TTS spend, gives you a\n  //                               master narration file for Shorts/captions).\n  // ELEVENLABS_NARRATION=hook  -> synthesise only the hook: a cheap, loud check that the key\n  //                               and voice id work before the render queue is touched.\n  const narrationMode = String($env.ELEVENLABS_NARRATION || 'hook').toLowerCase();\n  const ttsText = narrationMode === 'full' ? script : (hook || script.slice(0, 400));\n\n  return {\n    json: {\n      ...cfg,\n      script,\n      hook,\n      summary: String(parsed.summary || '').trim() || script.slice(0, 400),\n      suggested_title: String(parsed.suggested_title || cfg['Topic'] || '').slice(0, 100),\n      footage_queries: footageQueries,\n      word_count: script.split(/\\s+/).filter(Boolean).length,\n      narration_mode: narrationMode,\n      tts_text: ttsText,\n    },\n  };\n});\n"
+      }
+    },
+    {
+      "id": "b1a1f001-0001-4000-8000-000000000009",
+      "name": "ElevenLabs TTS",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1760,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.elevenlabs.io/v1/text-to-speech/{{ $json.voice_id }}?output_format=mp3_44100_128",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "xi-api-key",
+              "value": "={{ $env.ELEVENLABS_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Accept",
+              "value": "audio/mpeg"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: $json.tts_text, model_id: ($env.ELEVENLABS_MODEL || 'eleven_multilingual_v2'), voice_settings: { stability: 0.45, similarity_boost: 0.75, style: 0.25, use_speaker_boost: true } }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "data"
+            }
+          },
+          "timeout": 180000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "b1a1f001-0001-4000-8000-000000000010",
+      "name": "Save Narration Audio",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        1980,
+        300
+      ],
+      "parameters": {
+        "operation": "write",
+        "fileName": "={{ '/data/youtube-audio/' + $('Parse Script').item.json.audio_filename }}",
+        "dataPropertyName": "data",
+        "options": {}
+      }
+    },
+    {
+      "id": "b1a1f001-0001-4000-8000-000000000011",
+      "name": "Build Footage Queries",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2200,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// Fan one topic out into one Pexels search per footage query.\n// The narration file has already been saved by the previous node, so the script context\n// is re-read from \"Parse Script\" rather than carried on the binary item.\nconst out = [];\nfor (const item of $('Parse Script').all()) {\n  const topic = item.json;\n  const queries = (topic.footage_queries || []).slice(0, 5);\n  queries.forEach((query, index) => {\n    out.push({\n      json: {\n        ...topic,\n        footage_query: query,\n        query_index: index,\n        query_total: queries.length,\n      },\n    });\n  });\n}\nconsole.log(`Searching Pexels for ${out.length} footage queries across ${$('Parse Script').all().length} topic(s).`);\nreturn out;\n"
+      }
+    },
+    {
+      "id": "b1a1f001-0001-4000-8000-000000000012",
+      "name": "Pexels: Search Footage",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2420,
+        300
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.pexels.com/videos/search",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ $env.PEXELS_API_KEY }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "query",
+              "value": "={{ $json.footage_query }}"
+            },
+            {
+              "name": "per_page",
+              "value": "3"
+            },
+            {
+              "name": "orientation",
+              "value": "landscape"
+            },
+            {
+              "name": "size",
+              "value": "medium"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 45000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "b1a1f001-0001-4000-8000-000000000013",
+      "name": "Select Clips",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2640,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// Collapse the per-query Pexels results back to one item per topic and build the\n// MoneyPrinterTurbo render payload (documented fields of POST /api/v1/videos).\nconst groups = new Map();\n\nfor (const item of $input.all()) {\n  const j = item.json || {};\n  const key = j.Topic;\n  if (!groups.has(key)) groups.set(key, { base: j, clips: [] });\n  const group = groups.get(key);\n\n  const videos = Array.isArray(j.videos) ? j.videos : [];\n  for (const video of videos) {\n    const files = (video.video_files || []).filter((file) => file && file.link);\n    if (files.length === 0) continue;\n    // Closest to 1080p: good enough for a 16:9 render, small enough to download fast.\n    files.sort((a, b) => Math.abs((a.width || 0) - 1920) - Math.abs((b.width || 0) - 1920));\n    const file = files[0];\n    group.clips.push({\n      provider: 'pexels',\n      url: file.link,\n      duration: Math.min(15, Math.max(3, Math.round(video.duration || 5))),\n    });\n  }\n}\n\nif (groups.size === 0) {\n  throw new Error('No Pexels footage returned for any query. Check PEXELS_API_KEY and that the footage queries are sensible.');\n}\n\nconst out = [];\nfor (const [topic, group] of groups.entries()) {\n  const seen = new Set();\n  const materials = group.clips.filter((clip) => {\n    if (seen.has(clip.url)) return false;\n    seen.add(clip.url);\n    return true;\n  }).slice(0, 10);\n\n  if (materials.length === 0) {\n    throw new Error(`Pexels returned no usable video files for \"${topic}\". Re-run, or widen the footage queries in the channel config.`);\n  }\n\n  const base = group.base;\n  const mpt_body = {\n    video_subject: base['Topic'],\n    video_script: base.script,\n    video_terms: (base.footage_queries || []).join(','),\n    video_aspect: '16:9',\n    video_source: 'pexels',\n    video_materials: materials,\n    // ElevenLabs voice, spoken by MoneyPrinterTurbo in its own \"elevenlabs:<id>:<name>\" format.\n    voice_name: base.mpt_voice_name,\n    voice_volume: 1.0,\n    voice_rate: 1.0,\n    bgm_type: 'random',\n    bgm_volume: 0.12,\n    subtitle_enabled: true,\n    subtitle_position: 'bottom',\n    font_size: 64,\n    text_fore_color: '#FFFFFF',\n    stroke_color: '#000000',\n    stroke_width: 1.5,\n    video_clip_duration: 5,\n    video_concat_mode: 'random',\n    video_transition_mode: 'FadeIn',\n    match_materials_to_script: true,\n    video_count: 1,\n    n_threads: 2,\n    paragraph_number: 1,\n  };\n\n  out.push({\n    json: {\n      ...base,\n      video_materials: materials,\n      mpt_body,\n      render_request_id: `yt-${base.channel_slug}-${base.run_stamp}`.slice(0, 60),\n    },\n  });\n}\n\nconsole.log(`Built render payload for ${out.length} topic(s) with ${out.map((o) => o.json.video_materials.length).join('/')} clips.`);\nreturn out;\n"
+      }
+    },
+    {
+      "id": "b1a1f001-0001-4000-8000-000000000014",
+      "name": "MoneyPrinterTurbo Render",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2860,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.MPT_API_URL.replace(/\\/+$/, '') }}/api/v1/videos",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "x-task-id",
+              "value": "={{ $json.render_request_id }}"
+            },
+            {
+              "name": "x-api-key",
+              "value": "={{ $env.MPT_API_KEY || \"\" }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.mpt_body) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "b1a1f001-0001-4000-8000-000000000015",
+      "name": "Wait For Render",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        3080,
+        300
+      ],
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": 20,
+        "unit": "seconds"
+      }
+    },
+    {
+      "id": "b1a1f001-0001-4000-8000-000000000016",
+      "name": "Count Render Poll",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3300,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// Bound the polling loop: 60 polls x 20s = 20 minutes, then fail loudly.\nconst maxPolls = parseInt($env.MPT_MAX_POLLS || '60', 10) || 60;\nreturn $input.all().map((item) => {\n  const json = { ...item.json };\n  json.poll_count = (json.poll_count || 0) + 1;\n  if (json.poll_count > maxPolls) {\n    throw new Error(`MoneyPrinterTurbo render did not finish after ${maxPolls} polls (about ${Math.round((maxPolls * 20) / 60)} minutes) for \"${json.Topic || json.video_subject || 'unknown topic'}\". Check the MoneyPrinterTurbo container logs.`);\n  }\n  return { json };\n});"
+      }
+    },
+    {
+      "id": "b1a1f001-0001-4000-8000-000000000017",
+      "name": "Check Render Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3520,
+        300
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.MPT_API_URL.replace(/\\/+$/, '') }}/api/v1/tasks/{{ $json.data.task_id }}",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "={{ $env.MPT_API_KEY || \"\" }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "b1a1f001-0001-4000-8000-000000000018",
+      "name": "Render Complete?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3740,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "state-complete",
+              "leftValue": "={{ $json.data.state }}",
+              "rightValue": 1,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
         },
         "options": {}
       }
     },
     {
-      "id": "noop-complete",
-      "name": "Complete",
-      "type": "n8n-nodes-base.noOp",
+      "id": "b1a1f001-0001-4000-8000-000000000019",
+      "name": "Render Failed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3960,
+        560
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "state-failed",
+              "leftValue": "={{ $json.data.state }}",
+              "rightValue": -1,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "b1a1f001-0001-4000-8000-000000000020",
+      "name": "Build SEO Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3960,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// Build the YouTube SEO request (prompt taken from youtube-seo-prompt.md) and\n// normalise the rendered video URL for the download step.\nconst renderItems = $('Check Render Status').all();\nconst model = $env.OPENAI_MODEL || 'gpt-4o';\n\nreturn $input.all().map((item, index) => {\n  const topic = item.json;\n  const render = (renderItems[index] || renderItems[0] || {}).json || {};\n  const data = render.data || {};\n  const videos = Array.isArray(data.videos) ? data.videos : [];\n  const first = String(videos[0] || '').trim();\n  if (!first) {\n    throw new Error(`Render for \"${topic['Topic']}\" reported complete but returned no video file. Check the MoneyPrinterTurbo logs.`);\n  }\n  const baseUrl = String($env.MPT_API_URL || '').replace(/\\/+$/, '');\n  // MoneyPrinterTurbo may hand back a link on the host address it was configured with;\n  // inside the compose network that host is unreachable, so pin it to MPT_API_URL.\n  const video_url = (/^https?:\\/\\//i.test(first) ? first : `${baseUrl}/${first.replace(/^\\/+/, '')}`)\n    .replace(/^https?:\\/\\/(localhost|127\\.0\\.0\\.1)(:\\d+)?/i, baseUrl);\n\n  const prompt = [\n    'You are a YouTube SEO expert. Generate a highly optimized title, description, and tags for a video with the following details:',\n    '',\n    `CHANNEL_NAME: ${topic['Channel']}`,\n    `NICHE: ${topic.niche}`,\n    `BRAND_VOICE: ${topic.brand_voice}`,\n    `TOPIC: ${topic['Topic']}`,\n    `TRANSCRIPT_SUMMARY: ${topic.summary}`,\n    `AFFILIATE_LINK: ${topic.affiliate_url || '(none yet)'}`,\n    `AFFILIATE_PRODUCT: ${topic.affiliate_product}`,\n    `BASE_KEYWORDS: ${(topic.default_tags || []).join(', ')}`,\n    '',\n    'Requirements:',\n    '1. TITLE: catchy, under 70 characters, includes high-volume keywords and a hook.',\n    '2. DESCRIPTION:',\n    '   - First 2 lines: compelling summary that drives clicks.',\n    '   - Middle: detailed breakdown of what the video covers (~150 words).',\n    '   - Bottom: the AFFILIATE_LINK with a clear CTA, plus an affiliate disclosure and an AI-narration disclaimer.',\n    '3. TAGS: 15 relevant, high-traffic tags.',\n    '',\n    'Return ONLY valid JSON in this structure:',\n    '{ \"title\": \"string\", \"description\": \"string\", \"tags\": [\"tag1\", \"tag2\"] }',\n  ].join('\\n');\n\n  return {\n    json: {\n      ...topic,\n      video_url,\n      mpt_task_id: data.task_id || topic.mpt_task_id || '',\n      openai_body: {\n        model,\n        temperature: 0.6,\n        response_format: { type: 'json_object' },\n        messages: [\n          { role: 'system', content: 'You write YouTube metadata that ranks and converts. You never invent claims about the video that the transcript summary does not support.' },\n          { role: 'user', content: prompt },\n        ],\n      },\n    },\n  };\n});\n"
+      }
+    },
+    {
+      "id": "b1a1f001-0001-4000-8000-000000000021",
+      "name": "LLM: SEO Metadata",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4180,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.OPENAI_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.openai_body) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "b1a1f001-0001-4000-8000-000000000022",
+      "name": "Parse SEO Metadata",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4400,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// Validate the SEO JSON against YouTube's real limits and work out the publish schedule.\nconst sourceItems = $('Build SEO Request').all();\n\nreturn $input.all().map((item, index) => {\n  const source = (sourceItems[index] || sourceItems[0] || {}).json || {};\n  const raw = String((((item.json.choices || [])[0] || {}).message || {}).content || '').trim();\n  if (!raw) {\n    throw new Error(`SEO LLM returned nothing for \"${source['Topic']}\". Check OPENAI_API_KEY.`);\n  }\n\n  let seo;\n  try {\n    seo = JSON.parse(raw.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim());\n  } catch (error) {\n    throw new Error(`SEO LLM did not return valid JSON for \"${source['Topic']}\": ${error.message}`);\n  }\n\n  // YouTube hard limits: title 100 chars, tags 500 chars total, description 5000 chars.\n  let title = String(seo.title || source.suggested_title || source['Topic'] || '').replace(/\\s+/g, ' ').trim();\n  if (title.length > 100) title = `${title.slice(0, 97).trim()}...`;\n  let description = String(seo.description || '').trim();\n  if (description.length > 4900) description = `${description.slice(0, 4900)}...`;\n  const tags = (Array.isArray(seo.tags) ? seo.tags : String(seo.tags || '').split(','))\n    .map((tag) => String(tag || '').trim())\n    .filter(Boolean)\n    .join(',')\n    .slice(0, 480);\n\n  // Scheduled Time is \"YYYY-MM-DD HH:mm:ss\" (UTC). A future slot means: upload private,\n  // let YouTube publish it. Otherwise publish immediately.\n  const scheduled = String(source['Scheduled Time'] || '').trim();\n  let privacy_status = 'public';\n  let publish_at = '';\n  if (scheduled) {\n    const iso = scheduled.includes('T') ? scheduled : scheduled.replace(' ', 'T');\n    const when = new Date(/[zZ]|[+-]\\d{2}:?\\d{2}$/.test(iso) ? iso : `${iso}Z`);\n    if (!Number.isNaN(when.getTime()) && when.getTime() > Date.now() + 60 * 1000) {\n      privacy_status = 'private';\n      publish_at = when.toISOString().replace(/\\.\\d{3}Z$/, 'Z');\n    }\n  }\n\n  return {\n    json: {\n      ...source,\n      title,\n      description,\n      tags,\n      privacy_status,\n      publish_at,\n      seo_source: seo.title ? 'llm' : 'fallback',\n    },\n  };\n});\n"
+      }
+    },
+    {
+      "id": "b1a1f001-0001-4000-8000-000000000023",
+      "name": "Download Rendered Video",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4620,
+        300
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Build SEO Request').item.json.video_url }}",
+        "authentication": "none",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "data"
+            }
+          },
+          "timeout": 600000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "b1a1f001-0001-4000-8000-000000000024",
+      "name": "YouTube Upload",
+      "type": "n8n-nodes-base.youTube",
       "typeVersion": 1,
-      "position": [1050, 300],
-      "parameters": {}
+      "position": [
+        4840,
+        300
+      ],
+      "parameters": {
+        "resource": "video",
+        "operation": "upload",
+        "title": "={{ $('Parse SEO Metadata').item.json.title }}",
+        "regionCode": "US",
+        "categoryId": "={{ $('Parse SEO Metadata').item.json.category_id }}",
+        "options": {
+          "description": "={{ $('Parse SEO Metadata').item.json.description }}",
+          "tags": "={{ $('Parse SEO Metadata').item.json.tags }}",
+          "privacyStatus": "={{ $('Parse SEO Metadata').item.json.privacy_status }}",
+          "publishAt": "={{ $('Parse SEO Metadata').item.json.publish_at || undefined }}",
+          "notifySubscribers": true
+        }
+      },
+      "credentials": {
+        "youTubeOAuth2Api": {
+          "id": "REPLACE_WITH_YOUTUBE_CREDENTIAL_ID",
+          "name": "YouTube (YouTube Studio)"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "b1a1f001-0001-4000-8000-000000000025",
+      "name": "Mark Row Uploaded",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        5060,
+        300
+      ],
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $env.GOOGLE_SHEET_ID }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "ContentPipeline"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Channel": "={{ $('Parse SEO Metadata').item.json['Channel'] }}",
+            "Topic": "={{ $('Parse SEO Metadata').item.json['Topic'] }}",
+            "Script Status": "Completed",
+            "Video Status": "Uploaded",
+            "Published URL": "=https://youtu.be/{{ $json.id }}",
+            "SEO Status": "Done"
+          },
+          "matchingColumns": [
+            "Channel",
+            "Topic"
+          ],
+          "schema": []
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets (YouTube Studio)"
+        }
+      }
+    },
+    {
+      "id": "b1a1f001-0001-4000-8000-000000000026",
+      "name": "Build Error Row",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4620,
+        900
+      ],
+      "parameters": {
+        "jsCode": "// Normalise any failure into a ContentPipeline row update: Video Status = Error,\n// with the reason appended to Notes, so a failed run is visible in the sheet.\nconst cfgItems = $('Channel Config').all();\n\nreturn $input.all().map((item, index) => {\n  const json = item.json || {};\n  const cfg = ((cfgItems[index] || cfgItems[0] || {}).json) || {};\n  const error = json.error || {};\n  const message =\n    error.message ||\n    (error.description && `${error.description}`) ||\n    json.message ||\n    'Unknown error — open the n8n execution for the full stack.';\n\n  const previousNotes = String(json['Notes'] || cfg['Notes'] || '').trim();\n  const stamp = new Date().toISOString();\n  const noteLine = `[${stamp}] PIPELINE ERROR: ${String(message).replace(/\\s+/g, ' ').slice(0, 300)}`;\n\n  return {\n    json: {\n      'Channel': json['Channel'] || cfg['Channel'] || '',\n      'Topic': json['Topic'] || cfg['Topic'] || '',\n      'Script Status': json['Script Status'] || cfg['Script Status'] || 'Review Required',\n      'Video Status': 'Error',\n      'Published URL': json['Published URL'] || cfg['Published URL'] || '',\n      'Scheduled Time': json['Scheduled Time'] || cfg['Scheduled Time'] || '',\n      'SEO Status': json['SEO Status'] || cfg['SEO Status'] || 'Pending',\n      'Affiliate Link': json['Affiliate Link'] || cfg['Affiliate Link'] || '',\n      'Notes': previousNotes ? `${previousNotes}\\n${noteLine}` : noteLine,\n      'Week #': json['Week #'] || cfg['Week #'] || '',\n      error_message: String(message).slice(0, 500),\n    },\n  };\n});\n"
+      }
+    },
+    {
+      "id": "b1a1f001-0001-4000-8000-000000000027",
+      "name": "Mark Row Error",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        4840,
+        900
+      ],
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $env.GOOGLE_SHEET_ID }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "ContentPipeline"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Channel": "={{ $json['Channel'] }}",
+            "Topic": "={{ $json['Topic'] }}",
+            "Script Status": "={{ $json['Script Status'] }}",
+            "Video Status": "Error",
+            "Published URL": "={{ $json['Published URL'] }}",
+            "SEO Status": "={{ $json['SEO Status'] }}",
+            "Notes": "={{ $json['Notes'] }}"
+          },
+          "matchingColumns": [
+            "Channel",
+            "Topic"
+          ],
+          "schema": []
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets (YouTube Studio)"
+        }
+      }
+    },
+    {
+      "id": "b1a1f001-0001-4000-8000-000000000028",
+      "name": "Stop With Error",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        5060,
+        900
+      ],
+      "parameters": {
+        "errorMessage": "=YouTube pipeline failed for {{ $json[\"Channel\"] }} / {{ $json[\"Topic\"] }}: {{ $json.error_message }}"
+      }
+    },
+    {
+      "id": "b1a1f001-0001-4000-8000-000000000101",
+      "name": "Setup (read me)",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -60,
+        -40
+      ],
+      "parameters": {
+        "content": "## YouTube Studio — topic row ➜ rendered ➜ uploaded\n\nRuns daily 08:00 UTC. Reads the `ContentPipeline` sheet, keeps rows where Script Status = Pending AND Video Status = Pending, and takes at most one row per channel (MAX_VIDEOS_PER_RUN, default 4).\n\n### Before activating\n1. `youtube-studio/.env` filled in (see youtube-studio/.env.template — every key is marked FREE or PAID).\n2. Credentials created in n8n and attached to the three Google Sheets nodes and the YouTube node: **Google Sheets OAuth2** and **YouTube OAuth2**.\n3. Sheet columns exactly as in `youtube-studio/sheets-schema.md` (ContentPipeline). Rows are matched on Channel + Topic.\n\n### When a key is missing\nThe \"Validate Config (fail loud)\" node stops the run with the exact key name, whether it is free or paid, and where to get it. Nothing is generated or charged before that gate.",
+        "height": 340,
+        "width": 620,
+        "color": 4
+      }
+    },
+    {
+      "id": "b1a1f001-0001-4000-8000-000000000102",
+      "name": "Narration note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1700,
+        460
+      ],
+      "parameters": {
+        "content": "### Narration / TTS\n`ELEVENLABS_NARRATION=hook` (default) synthesises only the hook — a cheap, loud check that the key and voice id work, saved to /data/youtube-audio for the Shorts cut.\n`ELEVENLABS_NARRATION=full` synthesises the whole script as a master narration file (full ElevenLabs credit spend).\n\nThe render itself gets its audio from MoneyPrinterTurbo's own ElevenLabs provider (`voice_name = elevenlabs:<voice_id>:<name>`) because MPT's HTTP API only accepts custom audio that already lives inside the task directory it creates. Same voice, one paid synthesis per video.",
+        "height": 260,
+        "width": 460,
+        "color": 5
+      }
+    },
+    {
+      "id": "b1a1f001-0001-4000-8000-000000000103",
+      "name": "Render note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2820,
+        -40
+      ],
+      "parameters": {
+        "content": "### Render + upload\nPOST `/api/v1/videos` with the Pexels clips we picked (`video_materials`), then poll `GET /api/v1/tasks/{id}` every 20s.\nstate 1 = complete, -1 = failed, anything else keeps polling (bounded by MPT_MAX_POLLS, default 60 ≈ 20 min).\n\nOn success: SEO metadata from the youtube-seo-prompt.md template, download the mp4, upload, and write Video Status = Uploaded + Published URL + SEO Status = Done back to the sheet.\nOn any failure: Video Status = Error with the reason in Notes, then the run stops with an error so it is visible in n8n.",
+        "height": 300,
+        "width": 520,
+        "color": 6
+      }
     }
   ],
   "connections": {
-    "Daily Schedule": {
-      "main": [[ { "node": "GET Topic from ACE", "type": "main", "index": 0 } ]]
+    "Daily 08:00 Trigger": {
+      "main": [
+        [
+          {
+            "node": "Read Topic Queue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
-    "GET Topic from ACE": {
-      "main": [[ { "node": "Validate Topic Response", "type": "main", "index": 0 } ]]
+    "Read Topic Queue": {
+      "main": [
+        [
+          {
+            "node": "Select Pending Topics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
-    "Validate Topic Response": {
-      "main": [[ { "node": "POST Generate Video to ACE", "type": "main", "index": 0 } ]]
+    "Select Pending Topics": {
+      "main": [
+        [
+          {
+            "node": "Validate Config (fail loud)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
-    "POST Generate Video to ACE": {
-      "main": [[ { "node": "Complete", "type": "main", "index": 0 } ]]
+    "Validate Config (fail loud)": {
+      "main": [
+        [
+          {
+            "node": "Channel Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Channel Config": {
+      "main": [
+        [
+          {
+            "node": "Mark Script Generating",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Script Generating": {
+      "main": [
+        [
+          {
+            "node": "LLM: Write Script",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM: Write Script": {
+      "main": [
+        [
+          {
+            "node": "Parse Script",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Error Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Script": {
+      "main": [
+        [
+          {
+            "node": "ElevenLabs TTS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ElevenLabs TTS": {
+      "main": [
+        [
+          {
+            "node": "Save Narration Audio",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Error Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Narration Audio": {
+      "main": [
+        [
+          {
+            "node": "Build Footage Queries",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Footage Queries": {
+      "main": [
+        [
+          {
+            "node": "Pexels: Search Footage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pexels: Search Footage": {
+      "main": [
+        [
+          {
+            "node": "Select Clips",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Error Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select Clips": {
+      "main": [
+        [
+          {
+            "node": "MoneyPrinterTurbo Render",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MoneyPrinterTurbo Render": {
+      "main": [
+        [
+          {
+            "node": "Wait For Render",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Error Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait For Render": {
+      "main": [
+        [
+          {
+            "node": "Count Render Poll",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Count Render Poll": {
+      "main": [
+        [
+          {
+            "node": "Check Render Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Render Status": {
+      "main": [
+        [
+          {
+            "node": "Render Complete?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Render Complete?": {
+      "main": [
+        [
+          {
+            "node": "Build SEO Request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Render Failed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Render Failed?": {
+      "main": [
+        [
+          {
+            "node": "Build Error Row",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait For Render",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build SEO Request": {
+      "main": [
+        [
+          {
+            "node": "LLM: SEO Metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM: SEO Metadata": {
+      "main": [
+        [
+          {
+            "node": "Parse SEO Metadata",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Error Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse SEO Metadata": {
+      "main": [
+        [
+          {
+            "node": "Download Rendered Video",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Rendered Video": {
+      "main": [
+        [
+          {
+            "node": "YouTube Upload",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Error Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "YouTube Upload": {
+      "main": [
+        [
+          {
+            "node": "Mark Row Uploaded",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Error Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Error Row": {
+      "main": [
+        [
+          {
+            "node": "Mark Row Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Row Error": {
+      "main": [
+        [
+          {
+            "node": "Stop With Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
-  "active": true,
+  "active": false,
   "settings": {
-    "timezone": "America/New_York",
-    "saveManualExec": true
+    "executionOrder": "v1",
+    "timezone": "UTC",
+    "saveManualExecutions": true,
+    "saveExecutionProgress": true,
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all",
+    "callerPolicy": "workflowsFromSameOwner"
   },
   "staticData": null,
-  "tags": ["youtube", "automation", "daily"],
-  "pinData": {}
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {},
+  "tags": []
 }
