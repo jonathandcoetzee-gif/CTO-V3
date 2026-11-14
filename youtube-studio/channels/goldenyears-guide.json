@@ -1,0 +1,44 @@
+{
+  "channel": "GoldenYears Guide",
+  "slug": "goldenyears-guide",
+  "niche": "Senior health & wellness",
+  "revenue_priority": 3,
+  "rpm_target_usd": "5-8",
+  "brand_voice": "Gentle, encouraging and respectful. Longevity, simple exercises, nutrition for seniors and mental well-being. Warm, patient, community-oriented.",
+  "audience": "Adults 60+ and the family members who look after them.",
+  "style_rules": [
+    "Speak slowly and warmly; short sentences, no jargon.",
+    "Every health claim must be framed as general wellbeing, with 'talk to your doctor first'.",
+    "Give one thing the viewer can do today, seated or at home.",
+    "Never promise a cure, a diagnosis or a specific medical outcome."
+  ],
+  "elevenlabs_voice": {
+    "name": "Dorothy",
+    "env_var": "ELEVENLABS_VOICE_GOLDENYEARS_GUIDE",
+    "voice_id": "",
+    "description": "Warm, mature, steady (alternate: Arthur)"
+  },
+  "script": { "target_words": 950, "words_per_minute": 140 },
+  "footage": {
+    "aspect": "16:9",
+    "default_queries": [
+      "senior couple walking park",
+      "healthy breakfast table sunlight",
+      "senior woman stretching living room",
+      "grandparents laughing garden",
+      "fresh vegetables close up"
+    ]
+  },
+  "youtube": {
+    "category_id": "27",
+    "default_tags": ["senior health", "healthy aging", "exercises for seniors", "retirement wellness", "nutrition after 60"],
+    "thumbnail": { "palette": ["#8FBF9F", "#8CC7E8", "#F6C9A8"], "font": "Playfair Display" }
+  },
+  "affiliate_stack": [
+    { "product": "SilverSneakers", "commission": "lead-based", "url": "" },
+    { "product": "Seed Probiotics", "commission": "25% commission", "url": "" },
+    { "product": "BetterHelp", "commission": "$100 per conversion", "url": "" },
+    { "product": "Amazon Associates (mobility aids)", "commission": "4-10% commission", "url": "" },
+    { "product": "Yoga Burn for Seniors", "commission": "50% commission", "url": "" }
+  ]
+}

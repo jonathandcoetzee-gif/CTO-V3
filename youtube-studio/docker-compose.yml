@@ -1,0 +1,95 @@
+# YouTube Studio stack: n8n (workflow engine) + MoneyPrinterTurbo (video render).
+#
+#   cp .env.template .env          # fill in the keys, FREE/PAID marked inside
+#   ./scripts/init-mpt-config.sh   # renders config/config.toml from the template
+#   docker compose up -d
+#
+# n8n            -> http://localhost:5678  (imports n8n/workflows/youtube-automation.json once)
+# MPT render API -> http://localhost:8080  (internal name: moneyprinterturbo)
+# MPT web UI     -> http://localhost:8501  (manual test renders, optional)
+#
+# Port 5678 clashes with docker/docker-compose.yml — run one stack or the other.
+name: youtube-studio
+
+x-mpt-common: &mpt-common
+  image: ghcr.io/harry0703/moneyprinterturbo:latest
+  restart: unless-stopped
+  environment:
+    - TZ=${TZ:-UTC}
+  volumes:
+    - ./config/config.toml:/MoneyPrinterTurbo/config.toml:ro
+    - mpt_storage:/MoneyPrinterTurbo/resource
+    - mpt_storage:/MoneyPrinterTurbo/storage
+
+services:
+  # ── Render API ────────────────────────────────────────────────────────────
+  moneyprinterturbo:
+    <<: *mpt-common
+    container_name: mpt-api
+    command: ["python3", "main.py"]
+    ports:
+      - "127.0.0.1:8080:8080"
+    healthcheck:
+      test:
+        - CMD
+        - python3
+        - -c
+        - "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8080/docs')"
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+
+  # ── Render WebUI (manual testing) ─────────────────────────────────────────
+  moneyprinterturbo-webui:
+    <<: *mpt-common
+    container_name: mpt-webui
+    command:
+      - streamlit
+      - run
+      - ./webui/Main.py
+      - --server.address=0.0.0.0
+      - --server.port=8501
+      - --server.enableCORS=True
+      - --browser.gatherUsageStats=False
+      - --server.showEmailPrompt=False
+    ports:
+      - "127.0.0.1:8501:8501"
+
+  # ── Workflow engine ───────────────────────────────────────────────────────
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:latest
+    container_name: youtube-studio-n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    env_file:
+      - .env
+    environment:
+      - GENERIC_TIMEZONE=${TZ:-UTC}
+      - TZ=${TZ:-UTC}
+      # The workflow reads its keys from $env, so node-level env access must stay on.
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+      # Video files are far too big for memory mode.
+      - N8N_DEFAULT_BINARY_DATA_MODE=filesystem
+      - N8N_SECURE_COOKIE=false
+      - N8N_DIAGNOSTICS_ENABLED=false
+      - N8N_PERSONALIZATION_ENABLED=false
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./data/audio:/data/youtube-audio
+      - ../n8n/workflows/youtube-automation.json:/workflows/youtube-automation.json:ro
+    # Import the pipeline once, then start normally. Delete
+    # n8n_data/.youtube-workflow-imported to re-import after editing the JSON.
+    command: >
+      /bin/sh -c "if [ ! -f /home/node/.n8n/.youtube-workflow-imported ]; then
+      n8n import:workflow --input=/workflows/youtube-automation.json &&
+      touch /home/node/.n8n/.youtube-workflow-imported; fi;
+      n8n start"
+    depends_on:
+      moneyprinterturbo:
+        condition: service_healthy
+
+volumes:
+  n8n_data:
+  mpt_storage:

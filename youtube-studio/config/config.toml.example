@@ -1,0 +1,34 @@
+# MoneyPrinterTurbo configuration for the YouTube Studio stack.
+#
+# Do not edit config/config.toml by hand: scripts/init-mpt-config.sh fills the
+# ${...} placeholders from youtube-studio/.env and writes config/config.toml.
+# Only what the pipeline needs is set here; every other key keeps its default.
+
+[app]
+# n8n supplies the script and the footage list, so MoneyPrinterTurbo never calls
+# an LLM of its own (llm_provider is left at its default and unused).
+pexels_api_keys = ["${PEXELS_API_KEY}"]
+pixabay_api_keys = []
+# Base URL used to build the download links for rendered files. Must be an address
+# the n8n container can reach.
+endpoint = "${MPT_PUBLIC_URL}"
+# Optional request protection: when set, clients must send the same value in the
+# x-api-key header (the n8n workflow does this from MPT_API_KEY).
+api_key = "${MPT_API_KEY}"
+subtitle_provider = "whisper"
+
+# Subtitles are burned in from the ElevenLabs narration. The model downloads on
+# first use (~500 MB for "small"); keep it small on a CPU-only box.
+[whisper]
+model_size = "small"
+device = "cpu"
+compute_type = "int8"
+
+# The renderer speaks the channel voice through ElevenLabs directly, using the
+# "elevenlabs:<voice_id>:<name>" voice name the n8n workflow sends.
+[elevenlabs]
+api_key = "${ELEVENLABS_API_KEY}"
+model_id = "eleven_multilingual_v2"
+
+[ui]
+hide_log = false
